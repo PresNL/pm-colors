@@ -26,20 +26,16 @@
 
 package com.pmcolors;
 
-import net.runelite.client.config.Config;
-import net.runelite.client.config.ConfigGroup;
-import net.runelite.client.config.ConfigItem;
+import java.awt.Color;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-import java.awt.*;
-
-@ConfigGroup("pmcolors")
-public interface PMColorsConfig extends Config
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class PlayerHighlight
 {
-	@ConfigItem(
-			keyName = "highlightColor",
-			name = "Default highlight color",
-			description = "Configures the default color to highlight players withs",
-			position = 14
-	)
-	default Color highlightColor() { return Color.ORANGE; }
+    private String name;
+    private Color color;
 }

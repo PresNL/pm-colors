@@ -1,9 +1,43 @@
+/*
+ * Copyright (c) 2020, PresNL
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ * list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 package com.pmcolors;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ObjectArrays;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.google.inject.Provides;
 import javax.inject.Inject;
+import javax.swing.*;
+
+import com.pmcolors.ui.PMColorsPanel;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
@@ -14,27 +48,40 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.JagexColors;
+import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.components.colorpicker.ColorPickerManager;
+import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.Text;
 import org.apache.commons.lang3.ArrayUtils;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static net.runelite.api.ScriptID.OPEN_PRIVATE_MESSAGE_INTERFACE;
 
 @Slf4j
 @PluginDescriptor(
 	name = "PM Colors",
-	description = "Allows you to highlight certain users private messages, split private chat only",
+	description = "Allows you to highlight certain users private messages in specified colors, split private chat only",
 	tags = {"private", "message", "chat", "highlight"}
 )
 public class PMColorsPlugin extends Plugin
 {
+	private static final String PLUGIN_NAME = "PM Colors";
+
+	private static final String CONFIG_GROUP = "pmcolors";
+	private static final String CONFIG_KEY = "highlightedplayers";
+
 	private static final Pattern SENDER_NAME_PATTERN = Pattern.compile(
 		"(From|To) (<img=[0-9]>)?(.*?):");
 	private static final Pattern LOGGED_PATTERN = Pattern.compile(
@@ -49,6 +96,16 @@ public class PMColorsPlugin extends Plugin
 	@Inject
 	private ScheduledExecutorService executor;
 
+	@Inject
+	private ClientToolbar clientToolbar;
+
+	@Inject
+	private ConfigManager configManager;
+
+	@Getter
+	@Inject
+	private ColorPickerManager colorPickerManager;
+
 	private static final ImmutableList<String> AFTER_OPTIONS = ImmutableList.of("Message", "Lookup");
 
 	private static final String HIGHLIGHT = "Highlight";
@@ -56,18 +113,46 @@ public class PMColorsPlugin extends Plugin
 
 	private String selectedPlayer = null;
 
-	private List<String> highlightedPlayerList = new CopyOnWriteArrayList<>();
+	private PMColorsPanel pluginPanel;
+
+	private NavigationButton navigationButton;
+
+	@Getter
+	private final List<PlayerHighlight> highlightedPlayers = new ArrayList<>();
+
 	@Override
 	protected void startUp() throws Exception
 	{
-		executor.execute(this::reset);
 		selectedPlayer = null;
+
+		loadConfig(configManager.getConfiguration(CONFIG_GROUP, CONFIG_KEY)).forEach(highlightedPlayers::add);
+
+		pluginPanel = new PMColorsPanel(this);
+		pluginPanel.rebuild();
+
+		final BufferedImage icon = ImageUtil.getResourceStreamFromClass(getClass(), "/icon_marker.png");
+
+		navigationButton = NavigationButton.builder()
+				.tooltip(PLUGIN_NAME)
+				.icon(icon)
+				.priority(5)
+				.panel(pluginPanel)
+				.build();
+
+		clientToolbar.addNavigation(navigationButton);
+
 	}
 
 	@Override
 	protected void shutDown() throws Exception
 	{
-		highlightedPlayerList = null;
+		clientToolbar.removeNavigation(navigationButton);
+
+		highlightedPlayers.clear();
+		pluginPanel = null;
+
+		navigationButton = null;
+
 		selectedPlayer = null;
 	}
 
@@ -80,16 +165,10 @@ public class PMColorsPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		if (event.getGroup().equals("pmcolors"))
+		if (highlightedPlayers.isEmpty() && event.getGroup().equals(CONFIG_GROUP) && event.getKey().equals(CONFIG_KEY))
 		{
-			executor.execute(this::reset);
+			loadConfig(event.getNewValue()).forEach(highlightedPlayers::add);
 		}
-	}
-
-	private void reset()
-	{
-		highlightedPlayerList = Text.fromCSV(config.getHighlightPlayers());
-		HighlightMessages();
 	}
 
 	@Subscribe
@@ -111,11 +190,11 @@ public class PMColorsPlugin extends Plugin
 				|| scriptPostFired.getScriptId() == 175
 				|| scriptPostFired.getScriptId() == 80)
 		{
-			HighlightMessages();
+			highlightMessages();
 		}
 	}
 
-	private void HighlightMessages()
+	private void highlightMessages()
 	{
 		Widget pmWidget = client.getWidget(WidgetInfo.PRIVATE_CHAT_MESSAGE);
 		if (pmWidget != null)
@@ -133,16 +212,22 @@ public class PMColorsPlugin extends Plugin
 					if (loggedMatcher.find())
 					{
 						String name = loggedMatcher.group(1);
-						if (highlightedPlayerList.contains(name))
+
+						PlayerHighlight player = highlightedPlayers.stream()
+								.filter(p -> name.equalsIgnoreCase(p.getName()))
+								.findAny()
+								.orElse(null);
+
+						if (player != null)
 						{
-							Color color = config.highlightColor();
+							Color color = player.getColor();
 							sender.setTextColor(color.getRGB());
 							msg.setTextColor(color.getRGB());
 						}
 						else
 						{
-							sender.setTextColor(65535);
-							msg.setTextColor(65535);
+							sender.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
+							msg.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
 						}
 						continue;
 					}
@@ -150,17 +235,20 @@ public class PMColorsPlugin extends Plugin
 					if (senderNameMatcher.find())
 					{
 						String name = senderNameMatcher.group(3);
-
-						if (highlightedPlayerList.contains(name))
+						PlayerHighlight player = highlightedPlayers.stream()
+								.filter(p -> name.equalsIgnoreCase(p.getName()))
+								.findAny()
+								.orElse(null);
+						if (player != null)
 						{
-							Color color = config.highlightColor();
+							Color color = player.getColor();
 							sender.setTextColor(color.getRGB());
 							msg.setTextColor(color.getRGB());
 						}
 						else
 						{
-							sender.setTextColor(65535);
-							msg.setTextColor(65535);
+							sender.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
+							msg.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
 						}
 					}
 				}
@@ -186,7 +274,12 @@ public class PMColorsPlugin extends Plugin
 
 			// Build "Add Note" or "Edit Note" menu entry
 			final MenuEntry highlight = new MenuEntry();
-			if (!highlightedPlayerList.contains(selectedPlayer))
+			PlayerHighlight player = highlightedPlayers.stream()
+					.filter(p -> selectedPlayer.equalsIgnoreCase(p.getName()))
+					.findAny()
+					.orElse(null);
+
+			if (player == null)
 				highlight.setOption(HIGHLIGHT);
 			else
 				highlight.setOption(REMOVE_HIGHLIGHT);
@@ -209,19 +302,16 @@ public class PMColorsPlugin extends Plugin
 	{
 		if (event.getMenuOption().equals(HIGHLIGHT))
 		{
-			final List<String> highlightedPlayerSet = new ArrayList<>(highlightedPlayerList);
-
-			highlightedPlayerSet.add(selectedPlayer);
-
-			config.setHighlightedPlayers(Text.toCSV(highlightedPlayerSet));
+			finishCreation(false, selectedPlayer, config.highlightColor());
 		}
 		else if (event.getMenuOption().equals(REMOVE_HIGHLIGHT))
 		{
-			final List<String> highlightedPlayerSet = new ArrayList<>(highlightedPlayerList);
-
-			highlightedPlayerSet.removeIf(selectedPlayer::equalsIgnoreCase);
-
-			config.setHighlightedPlayers(Text.toCSV(highlightedPlayerSet));
+			PlayerHighlight player = highlightedPlayers.stream()
+					.filter(p -> selectedPlayer.equalsIgnoreCase(p.getName()))
+					.findAny()
+					.orElse(null);
+			if (player != null)
+				deleteHighlight(player);
 		}
 		selectedPlayer = null;
 	}
@@ -233,5 +323,65 @@ public class PMColorsPlugin extends Plugin
 		int menuEntryCount = newMenu.length;
 		ArrayUtils.swap(newMenu, menuEntryCount - 1, menuEntryCount - 2);
 		client.setMenuEntries(newMenu);
+	}
+
+	public Color getDefaultColor()
+	{
+		return config.highlightColor();
+	}
+
+	public void finishCreation(boolean aborted, String name, Color color)
+	{
+		if (!aborted && name != null && color != null)
+		{
+			PlayerHighlight highlight = new PlayerHighlight();
+			highlight.setName(Text.toJagexName(name));
+			highlight.setColor(color);
+
+			highlightedPlayers.add(highlight);
+
+			SwingUtilities.invokeLater(() -> pluginPanel.rebuild());
+			updateConfig();
+		}
+
+		pluginPanel.setCreation(false);
+	}
+
+	public void deleteHighlight(final PlayerHighlight highlight)
+	{
+		highlightedPlayers.remove(highlight);
+		updateConfig();
+		SwingUtilities.invokeLater(() -> pluginPanel.rebuild());
+
+	}
+
+	public void updateConfig()
+	{
+		if (highlightedPlayers.isEmpty())
+		{
+			configManager.unsetConfiguration(CONFIG_GROUP, CONFIG_KEY);
+			return;
+		}
+
+		final Gson gson = new Gson();
+		final String json = gson
+				.toJson(highlightedPlayers.stream().collect(Collectors.toList()));
+		configManager.setConfiguration(CONFIG_GROUP, CONFIG_KEY, json);
+		highlightMessages();
+	}
+
+	private Stream<PlayerHighlight> loadConfig(String json)
+	{
+		if (Strings.isNullOrEmpty(json))
+		{
+			return Stream.empty();
+		}
+
+		final Gson gson = new Gson();
+		final List<PlayerHighlight> playerHiglightData = gson.fromJson(json, new TypeToken<ArrayList<PlayerHighlight>>()
+		{
+		}.getType());
+
+		return playerHiglightData.stream().filter(Objects::nonNull);
 	}
 }
