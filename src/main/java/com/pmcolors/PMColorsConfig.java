@@ -41,5 +41,26 @@ public interface PMColorsConfig extends Config
 			description = "Configures the default color to highlight players withs",
 			position = 14
 	)
-	default Color highlightColor() { return Color.ORANGE; }
+	default Color defaultHighlightColor() { return Color.ORANGE; }
+	@ConfigItem(
+		keyName = "highlightUsername",
+		name = "Highlight username default",
+		description = "Configures if you want to highlight the username by default",
+		position = 14
+	)
+	default boolean highlightUsernameDefault() { return true; }
+	@ConfigItem(
+			keyName = "highlightMessage",
+			name = "Highlight message default",
+			description = "Configures if you want to highlight the message by default",
+			position = 14
+	)
+	default boolean highlightMessageDefault() { return true; }
+	@ConfigItem(
+			keyName = "highlightLoggedInOut",
+			name = "Highlight Logged in/out default",
+			description = "Configures if you want to highlight the logged in/out message by default",
+			position = 14
+	)
+	default boolean highlightLoggedInOutDefault() { return true; }
 }

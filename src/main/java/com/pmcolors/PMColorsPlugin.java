@@ -37,11 +37,9 @@ import javax.swing.*;
 
 import com.pmcolors.ui.PMColorsPanel;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
-import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -49,9 +47,9 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.JagexColors;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.components.colorpicker.ColorPickerManager;
+import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.Text;
 import org.apache.commons.lang3.ArrayUtils;
@@ -67,12 +65,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static net.runelite.api.ScriptID.OPEN_PRIVATE_MESSAGE_INTERFACE;
-
 @Slf4j
 @PluginDescriptor(
 	name = "PM Colors",
-	description = "Allows you to highlight certain users private messages in specified colors, split private chat only",
+	description = "Allows you to highlight certain users private messages in specified colors",
 	tags = {"private", "message", "chat", "highlight"}
 )
 public class PMColorsPlugin extends Plugin
@@ -82,8 +78,6 @@ public class PMColorsPlugin extends Plugin
 	private static final String CONFIG_GROUP = "pmcolors";
 	private static final String CONFIG_KEY = "highlightedplayers";
 
-	private static final Pattern SENDER_NAME_PATTERN = Pattern.compile(
-		"(From|To) (<img=[0-9]>)?(.*?):");
 	private static final Pattern LOGGED_PATTERN = Pattern.compile(
 		"(.*?) has logged (out|in)");
 
@@ -110,6 +104,8 @@ public class PMColorsPlugin extends Plugin
 
 	private static final String HIGHLIGHT = "Highlight";
 	private static final String REMOVE_HIGHLIGHT = "Remove highlight";
+
+	//private static final ImmutableSet<Integer> HIGHLIGHT_SCRIPT IDS = new Immutabl
 
 	private String selectedPlayer = null;
 
@@ -171,87 +167,94 @@ public class PMColorsPlugin extends Plugin
 		}
 	}
 
-	@Subscribe
-	public void onScriptPostFired(ScriptPostFired scriptPostFired)
+	@Subscribe(priority = 1) // run before chat message manager
+	public void onChatMessage(ChatMessage chatMessage)
 	{
-		/* 663 and 664 seems to be the scripts that update the private message window
-		* sending a private message and opening the interface also seem to reset the colors
-		* so that's why they are included
-		* 924 is chatbox parent which seems to update whenever you switch to a different tab
-		* which also breaks the highlighting so we update then too
-		* 175 is when you switch chat tabs (public, private etc) which also breaks the highlighting
-		* 80 updates the chatbox when you close an interface so you can guess what happens there
-		*/
-		if (scriptPostFired.getScriptId() == 663
-				|| scriptPostFired.getScriptId() == 664
-				|| scriptPostFired.getScriptId() == OPEN_PRIVATE_MESSAGE_INTERFACE
-				|| scriptPostFired.getScriptId() == 112
-				|| scriptPostFired.getScriptId() == 924
-				|| scriptPostFired.getScriptId() == 175
-				|| scriptPostFired.getScriptId() == 80)
+		ChatMessageType messageType = chatMessage.getType();
+		if (messageType == ChatMessageType.PRIVATECHAT || messageType == ChatMessageType.PRIVATECHATOUT)
 		{
-			highlightMessages();
+			String name = Text.removeTags(Text.toJagexName(chatMessage.getName()));
+			PlayerHighlight player = highlightedPlayers.stream()
+					.filter(p -> name.equalsIgnoreCase(p.getName()))
+					.findAny()
+					.orElse(null);
+
+			if (player != null)
+			{
+				if (player.isHighlightMessage())
+				{
+					MessageNode messageNode = chatMessage.getMessageNode();
+					messageNode.setValue(ColorUtil.wrapWithColorTag(
+							messageNode.getValue().replace(ColorUtil.CLOSING_COLOR_TAG, ColorUtil.colorTag(player.getColor())),
+							player.getColor()));
+				}
+			}
+		}
+		else if (messageType == ChatMessageType.LOGINLOGOUTNOTIFICATION)
+		{
+			Matcher loggedMatcher = LOGGED_PATTERN.matcher(chatMessage.getMessage());
+			if (loggedMatcher.find())
+			{
+				String name = Text.removeTags(Text.toJagexName(loggedMatcher.group(1)));
+				PlayerHighlight player = highlightedPlayers.stream()
+						.filter(p -> name.equalsIgnoreCase(p.getName()))
+						.findAny()
+						.orElse(null);
+
+				if (player != null)
+				{
+					if (player.isHighlightLoggedInOut())
+					{
+						MessageNode messageNode = chatMessage.getMessageNode();
+						messageNode.setValue(ColorUtil.wrapWithColorTag(
+								messageNode.getValue().replace(ColorUtil.CLOSING_COLOR_TAG, ColorUtil.colorTag(player.getColor())),
+								player.getColor()));
+					}
+				}
+			}
 		}
 	}
 
-	private void highlightMessages()
+	@Subscribe(priority = 1) // run before chat message manager
+	public void onScriptCallbackEvent(ScriptCallbackEvent scriptCallbackEvent)
 	{
-		Widget pmWidget = client.getWidget(WidgetInfo.PRIVATE_CHAT_MESSAGE);
-		if (pmWidget != null)
+		final String eventName = scriptCallbackEvent.getEventName();
+
+		switch (eventName)
 		{
-			Widget[] children = pmWidget.getDynamicChildren();
-			for (int i = 0; i < children.length; i+= 2)
+			case "privateChatFrom":
+			case "privateChatTo":
+			case "privateChatSplitFrom":
+			case "privateChatSplitTo":
+				break;
+			default:
+				return;
+		}
+
+		//boolean isChatboxTransparent = client.isResized() && client.getVar(Varbits.TRANSPARENT_CHATBOX) == 1;
+		//Color usernameColor = isChatboxTransparent ? chatColorConfig.transparentPrivateUsernames() : chatColorConfig.opaquePrivateUsernames();
+		//if (usernameColor == null)
+		//{
+		//	return;
+		//}
+
+		final String[] stringStack = client.getStringStack();
+		final int stringStackSize = client.getStringStackSize();
+
+
+		// Stack is: To/From playername :
+		String name = Text.removeTags(Text.toJagexName(stringStack[2]));
+		PlayerHighlight player = highlightedPlayers.stream()
+				.filter(p -> name.equalsIgnoreCase(p.getName()))
+				.findAny()
+				.orElse(null);
+
+		if (player != null)
+		{
+			if (player.isHighlightUsername())
 			{
-				Widget sender = children[i];
-				Widget msg = children[i + 1];
-				if (sender != null && msg != null)
-				{
-					String senderName = sender.getText();
-					Matcher senderNameMatcher = SENDER_NAME_PATTERN.matcher(senderName);
-					Matcher loggedMatcher = LOGGED_PATTERN.matcher(senderName);
-					if (loggedMatcher.find())
-					{
-						String name = loggedMatcher.group(1);
-
-						PlayerHighlight player = highlightedPlayers.stream()
-								.filter(p -> name.equalsIgnoreCase(p.getName()))
-								.findAny()
-								.orElse(null);
-
-						if (player != null)
-						{
-							Color color = player.getColor();
-							sender.setTextColor(color.getRGB());
-							msg.setTextColor(color.getRGB());
-						}
-						else
-						{
-							sender.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
-							msg.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
-						}
-						continue;
-					}
-
-					if (senderNameMatcher.find())
-					{
-						String name = senderNameMatcher.group(3);
-						PlayerHighlight player = highlightedPlayers.stream()
-								.filter(p -> name.equalsIgnoreCase(p.getName()))
-								.findAny()
-								.orElse(null);
-						if (player != null)
-						{
-							Color color = player.getColor();
-							sender.setTextColor(color.getRGB());
-							msg.setTextColor(color.getRGB());
-						}
-						else
-						{
-							sender.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
-							msg.setTextColor(JagexColors.CHAT_PRIVATE_MESSAGE_TEXT_TRANSPARENT_BACKGROUND.getRGB());
-						}
-					}
-				}
+				String toFrom = stringStack[stringStackSize - 3];
+				stringStack[stringStackSize - 3] = ColorUtil.prependColorTag(toFrom, player.getColor());
 			}
 		}
 	}
@@ -302,7 +305,7 @@ public class PMColorsPlugin extends Plugin
 	{
 		if (event.getMenuOption().equals(HIGHLIGHT))
 		{
-			finishCreation(false, selectedPlayer, config.highlightColor());
+			finishCreation(false, selectedPlayer, config.defaultHighlightColor());
 		}
 		else if (event.getMenuOption().equals(REMOVE_HIGHLIGHT))
 		{
@@ -327,7 +330,7 @@ public class PMColorsPlugin extends Plugin
 
 	public Color getDefaultColor()
 	{
-		return config.highlightColor();
+		return config.defaultHighlightColor();
 	}
 
 	public void finishCreation(boolean aborted, String name, Color color)
@@ -337,7 +340,9 @@ public class PMColorsPlugin extends Plugin
 			PlayerHighlight highlight = new PlayerHighlight();
 			highlight.setName(Text.toJagexName(name));
 			highlight.setColor(color);
-
+			highlight.setHighlightUsername(config.highlightUsernameDefault());
+			highlight.setHighlightMessage(config.highlightMessageDefault());
+			highlight.setHighlightLoggedInOut(config.highlightLoggedInOutDefault());
 			highlightedPlayers.add(highlight);
 
 			SwingUtilities.invokeLater(() -> pluginPanel.rebuild());
@@ -367,7 +372,6 @@ public class PMColorsPlugin extends Plugin
 		final String json = gson
 				.toJson(highlightedPlayers.stream().collect(Collectors.toList()));
 		configManager.setConfiguration(CONFIG_GROUP, CONFIG_KEY, json);
-		highlightMessages();
 	}
 
 	private Stream<PlayerHighlight> loadConfig(String json)

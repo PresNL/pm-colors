@@ -38,4 +38,8 @@ public class PlayerHighlight
 {
     private String name;
     private Color color;
+    private boolean highlightUsername;
+    private boolean highlightMessage;
+    private boolean highlightLoggedInOut;
+
 }
