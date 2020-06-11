@@ -1,6 +1,8 @@
 # PM Colors
 This plugin allows you to highlight certain players in your private messages in different colors
 
+[![Plugin at work](https://thumbs.gfycat.com/SnivelingPersonalInsect-size_restricted.gif)](https://gfycat.com/snivelingpersonalinsect)
+
 ## Features:
   - Higlight private messages from specified players
     - Right click -> highlight on a private message
@@ -15,7 +17,3 @@ This plugin allows you to highlight certain players in your private messages in 
   - Highlight username default      - Set if you want the username to be highlighted by default when adding a new player
   - Highlight message default       - Set if you want the message content to be highlighted by default when adding a new player
   - Highlight Logged in/out default - Set if you want the logged in/out message to be highlighted when adding a new player
-  
-Demo of the plugin (click on the image and select hd on the controls of the video if you want to see it clearer):
-
-[![Plugin at work](https://thumbs.gfycat.com/SnivelingPersonalInsect-size_restricted.gif)](https://gfycat.com/snivelingpersonalinsect)
