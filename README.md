@@ -1,7 +1,8 @@
 # PM Colors
 This plugin allows you to highlight certain players in your private messages in different colors
 
-[![Plugin at work](https://user-images.githubusercontent.com/9059955/84429493-88157b80-ac28-11ea-8589-8ca2fde2c808.gif)](https://gfycat.com/snivelingpersonalinsect)
+Demo (if it's hard to see click on the gif and select hd in the player):
+[![Plugin at work](https://thumbs.gfycat.com/SnivelingPersonalInsect-size_restricted.gif)](https://gfycat.com/snivelingpersonalinsect)
 
 ## Features:
   - Higlight private messages from specified players
