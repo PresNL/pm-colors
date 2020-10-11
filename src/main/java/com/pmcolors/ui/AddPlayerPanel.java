@@ -32,7 +32,6 @@ package com.pmcolors.ui;
 
 import com.pmcolors.PMColorsPlugin;
 import com.pmcolors.PlayerHighlight;
-import jdk.internal.dynalink.support.BottomGuardingDynamicLinker;
 import net.runelite.client.plugins.screenmarkers.ScreenMarkerPlugin;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.FlatTextField;
