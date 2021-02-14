@@ -40,6 +40,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -126,7 +127,7 @@ public class PMColorsPlugin extends Plugin
 		pluginPanel = new PMColorsPanel(this);
 		pluginPanel.rebuild();
 
-		final BufferedImage icon = ImageUtil.getResourceStreamFromClass(getClass(), "/icon_marker.png");
+		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/icon_marker.png");
 
 		navigationButton = NavigationButton.builder()
 				.tooltip(PLUGIN_NAME)
@@ -301,13 +302,13 @@ public class PMColorsPlugin extends Plugin
 	}
 
 	@Subscribe
-	public void onPlayerMenuOptionClicked(PlayerMenuOptionClicked event)
+	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
-		if (event.getMenuOption().equals(HIGHLIGHT))
+		if (event.getMenuAction() == MenuAction.RUNELITE && event.getMenuOption().equals(HIGHLIGHT))
 		{
 			finishCreation(false, selectedPlayer, config.defaultHighlightColor());
 		}
-		else if (event.getMenuOption().equals(REMOVE_HIGHLIGHT))
+		else if (event.getMenuAction() == MenuAction.RUNELITE && event.getMenuOption().equals(REMOVE_HIGHLIGHT))
 		{
 			PlayerHighlight player = highlightedPlayers.stream()
 					.filter(p -> selectedPlayer.equalsIgnoreCase(p.getName()))
